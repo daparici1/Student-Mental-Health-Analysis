@@ -1,0 +1,291 @@
+---
+title: "Data Analysis - Students and Depression"
+author: "David Aparicio"
+output: ioslides_presentation
+---
+
+## Introduction
+
+In this exploratory data analysis, we would like to see how different factors affect depression rates among students.
+Can we accurately predict if a student is facing depression based on features from our data set?
+
+The approach we will be using is a Decision Tree model, an effective and interpretable model for these sorts of classification problems.
+
+We will begin by cleaning and exploring our data set.
+
+## Data
+
+```{r, include = FALSE}
+
+library(dplyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(plotly)
+
+SDD = read.csv("Student Depression Dataset.csv", header = TRUE, sep = ",")
+
+head(SDD)
+
+```
+
+We can clean up the data a bit by removing all NA values as well as columns `Work.Pressure` and `Job.Satisfaction` as the values are generally 0.
+Since we want to perform this analysis among students only, we will filter `Profession` to just students and then omit the `Profession` column entirely.
+We will also drop `City` for simplicity.
+
+```{r, include = FALSE}
+
+SDD = SDD %>% 
+  na.omit() %>%
+  filter(Profession == "Student") %>%
+  select(-Work.Pressure,
+         -Job.Satisfaction,
+         -Profession,
+         -City)
+
+head(SDD, 10)
+
+```
+
+## Analyzing our Data 
+
+<font size = "4">
+
+Before we get started with our predictive decision tree model, let us first make some inferences from our data.
+One thing we can do is look at the frequency of students with depression using a pie chart:
+
+```{r, echo = FALSE, fig.height = 4, fig.width = 7}
+
+data = SDD %>% 
+  count(Depression) %>%
+  mutate(Total = sum(n)) %>%
+  arrange(desc(Depression))
+
+ggplot(data, aes(x = "", y = n / Total, fill = as.factor(Depression))) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  scale_fill_manual(values = c("0" = "pink","1" = "red"), name = "Depression") +
+  geom_text(aes(
+    y = cumsum(n / Total) - (n / Total) / 2,
+    label = paste0(round((n / Total) * 100), "%")
+  )) +
+  ggtitle("Depressed vs nondepressed students")
+
+```
+
+We can see that depression among students in this data set is actually higher than students without.
+
+</font>
+
+## 3D Scatterplot
+
+<font size = "4">
+
+Another thing we can do is see the relationship between some of the features in the data set
+We can use a 3D scatterplot to plot the relationship between features `Age`, `CGPA` and `Work.Study.Hours`
+
+```{r, echo=FALSE, fig.height = 4, fig.width = 7}
+
+set.seed(123)
+
+plot_ly(data = SDD,
+        x=~CGPA,
+        y=~Work.Study.Hours,
+        z=~Age,
+        type="scatter3d",
+        mode="markers",
+        color=~Depression,
+        colors=c("pink","red")
+        ) %>%
+  layout(
+    title = "Distribution of Age, CGPA, and Work/Study Hours Among Students"
+  )
+
+```
+We can see that we have a dense rectangular object of markers, it appears to be mostly in the following ranges,
+ages 0-35, work/study hours 0-12 and CGPA 5-10. There are few outliers outside of these ranges.
+
+</font>
+
+## Statistical Analysis {.smaller}
+
+<font size = "4">
+
+It is difficult to capture the full picture visually.
+
+Among age, CGPA, and work study hours, where does most of our data actually lie? 
+
+Let us compare the average ages, CGPA, and work study hours between students that are vs not depressed.
+
+```{r, echo=FALSE}
+
+avgs_depression = SDD %>%
+  group_by(Depression) %>%
+  summarize(
+    mean_age = mean(Age),
+    median_age = median(Age),
+    mean_CGPA = mean(CGPA),
+    median_CGPA = median(CGPA),
+    mean_hrs = mean(Work.Study.Hours),
+    median_hrs = median(Work.Study.Hours),
+  )
+
+print(avgs_depression)
+
+```
+
+Immediately the CGPA stands out the most, as there is only a small difference between depressed and non-depressed students. Older students were generally less depressed, with a mean age of 27.14 versus 24.88 for depressed. The mean hours spent studying/working is also higher among depressed students by more than an hour, and the median difference is a surprising 3 hours, suggesting that less free time might have an impact on depressive symptoms.
+
+</font>
+
+## Training our Data
+
+We explored the features in our data set as well as some general statistics, but which features actually matter when predicting if a student will experience depression?
+We can attempt to explore this question further using a decision tree model.
+
+First, we must split the data into train/test sets. We will use an 80/20 split and use our response variable `Depression` for our index. 
+
+```{r, tidy=TRUE}
+
+set.seed(123)
+
+train_index = createDataPartition(SDD$Depression, p = 0.8, list = FALSE)
+train_data = SDD[train_index, ]
+test_data = SDD[-train_index, ]
+
+```
+
+## Building our Tree
+
+<font size = "4">
+
+Now that we have our trained data, we can build our Decision Tree model:
+
+```{r, fig.height = 3, fig.width = 6}
+
+tree_model = rpart(data = train_data,
+                   Depression ~ .,
+                   method = "class")
+
+rpart.plot(tree_model)
+
+```
+</font>
+
+## Model Interpretation
+
+Now we have our model, but what does it mean?
+
+Let us begin with the root node with values 1, 0.58, and 100%. 
+
+*1* indicates that the model predicts "Depressed"
+*0.58* indicates that 58% of our training data elements are depressed
+*100%* simply indicates that 100% of our training data starts at the root node.
+
+The first split occurs from our feature `have.you.ever.had.suicidal.thoughts` which means this is our most informative predictor of depression.
+
+## Bar Plot
+
+<font size = "4">
+
+We can plot the relationship between this feature and `Depression` using a bar plot:
+
+```{r, echo=FALSE}
+
+SDD$Depression = as.factor(SDD$Depression)
+
+g = ggplot(SDD, 
+       aes(x = Have.you.ever.had.suicidal.thoughts.., 
+           fill = Depression)) +
+  geom_bar(position = "fill") +
+  ggtitle("Suicidal Thoughts Relation to Depression") +
+  xlab("Suicidal Thoughts") +
+  ylab("Proportion") +
+  theme_minimal() + 
+  scale_fill_manual(
+    values = c("0" = "pink", "1" = "red")
+  )
+
+ggplotly(g)
+
+```
+
+Clearly, we can see that the vast majority of students who have had suicidal thoughts were also depressed with a proportion of 79%.
+
+</font>
+
+## Model Evaluation {.smaller}
+
+<font size = "4">
+
+Now we can run predictions for our decision tree as well as evaluate the performance of our model:
+
+<div style="font-size:80%">
+
+``` {r}
+set.seed(123)
+test_data$Depression = as.factor(test_data$Depression)
+predictions = predict(tree_model, test_data, type = "class")
+cm = confusionMatrix(predictions, test_data$Depression)
+
+print(cm$table)
+print(cm$overall["Accuracy"])
+```
+
+</div>
+
+81.77% of predictions were correct.
+
+</font>
+
+## Confusion Matrix Heat Map
+
+<font size = "4">
+
+We can visualize the confusion matrix with a heat map:
+
+```{r, echo=FALSE}
+
+cm_df = as.data.frame(cm$table)
+
+ggplot(cm_df, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile() +
+  geom_text(aes(label = Freq), 
+            color = "black", 
+            size = 5) +
+  scale_fill_gradient(low = "pink", high = "red") +
+  theme_minimal() +
+  ggtitle("Confusion Matrix - Reference vs Prediction")
+
+```
+
+This visualization helps us distinguish between our true positives/negatives and false positives/negatives.
+
+</font>
+
+## Concluding Thoughts
+
+At an accuracy of 81.77%, there is room for improvement in our model. The relationship between our features and Depression is complex, and one potential improvement for this predictive accuracy could be a random forest model, which utilizes multiple decision trees. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
