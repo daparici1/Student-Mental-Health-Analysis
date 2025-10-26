@@ -24,7 +24,7 @@ library(rpart.plot)
 library(ggplot2)
 library(plotly)
 
-SDD = read.csv("Student Depression Dataset.csv", header = TRUE, sep = ",")
+SDD = read.csv("students_depression.csv", header = TRUE, sep = ",")
 
 head(SDD)
 
